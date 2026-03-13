@@ -1,0 +1,452 @@
+Dataset:
+  root_dir: D:\\Projects\\Pytorch_DDcGAN-master\\tools\\datasets\\TNO\\
+  sensors: ['Vis', 'Inf']
+  image_suffix: ".png"
+  mask_suffix: "_mask.png"
+  input_size: 256
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+
+Train:
+  Base:
+    batch_size: 1
+    epoch: 100
+    seed: 42
+    input_perturb:
+      enable: false
+      target: Inf
+      p: 0.5
+      max_shift: 4
+      max_rotate_deg: 3.0
+  Generator:
+    lr: 0.0001
+    opt: Adam
+    train_times_per_epoch: 5
+    min_loss_per_epoch: 0
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+    mask_augment:
+      enable: false
+      morph:
+        p: 0.5
+        kernel_size: 3
+        dilate_prob: 0.5
+      shift:
+        p: 0.3
+        max_shift: 8
+
+  Discriminator:
+    lr: 0.00005
+    opt: Adam
+    train_times_per_epoch: 5
+    min_loss_per_epoch: 0.1
+
+Generator:
+  Generator_Name: ['Generator_1']
+  Input_Datasets: [['Vis','Inf']]
+  Dist_Loss: [['Generator_1','Vis'],['Generator_1','Inf']]
+  Loss_Dist_weight: 1
+  Loss_adv_weight: 0.1
+
+Discriminator:
+  Discriminator_Name: ['Discriminator_1','Discriminator_2']
+  Input_Datasets: [['Vis','Generator_1'],['Inf','Generator_1']]
+
+Struct:
+  Generator_1:
+    # 1) 给 Vis 加权
+    input_weights_Vis_G:
+      type: input_weights
+      input_dim: 4
+      layers: [ 'Vis' ]   # 要对 feats['Vis'] 做加权
+
+    # 2) 给 Inf 加权
+    input_weights_Inf_G:
+      type: input_weights
+      input_dim: 4
+      layers: [ 'Inf' ]   # 要对 feats['Inf'] 做加权
+
+    concat_1:
+      type: concat
+      mode: cat
+      layers: ['Vis','Inf']
+
+    layer_1:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 8
+        out_channels: 64
+        kernel_size: 9
+        stride: 1
+        padding: 4
+
+    multihead_attn_1: # 新增多头注意力层
+      type: multihead_attn
+      embed_dim: 64  # 输入的通道数作为注意力层的 embed_dim
+      num_heads: 4
+      layers: [ 'layer_1' ]  # 可以指定在哪一层之后插入（例如在 layer_1 之后）
+      patch_size: 32  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+    concat_2:
+      type: concat
+      mode: cat
+      layers: ['Vis','Inf','layer_1']   # 拼接后的通道数是3+3+64=70
+
+    layer_2:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 72
+        out_channels: 32
+        kernel_size: 5
+        stride: 1
+        padding: 2
+
+    multihead_attn_2: # 新增第二个多头注意力层
+      type: multihead_attn
+      embed_dim: 32  # 输入的通道数作为注意力层的 embed_dim
+      num_heads: 4
+      layers: [ 'layer_2' ]  # 在 layer_2 之后插入
+      patch_size: 32  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+    concat_3:
+      type: concat
+      mode: cat
+      layers: ['concat_1','layer_1','layer_2']   # 拼接后的通道数是3+3+64+32=102
+
+    layer_3:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: Tanh
+      parameters:
+        in_channels: 104
+        out_channels: 3
+        kernel_size: 5
+        stride: 1
+        padding: 2
+
+
+
+  Discriminator_1:
+    # 1) 给 Vis 输入加权
+    input_weights_Vis_D1:
+      type: input_weights
+      input_dim: 3            # 假设 Vis 是 3 通道
+      layers: [ 'Vis' ]         # 对 feats['Vis'] 做加权
+
+    # 2) 给 Generator_1 输入加权
+    input_weights_Gen_D1:                   
+      type: input_weights
+      input_dim: 3           # 若生成器输出也是 3 通道
+      layers: [ 'Generator_1' ] # 对 feats['Generator_1'] 做加权
+
+    concat_1:
+      type: concat
+      mode: batch
+      layers: ['Vis','Generator_1']
+
+    layer_1:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 3
+        out_channels: 16
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_2:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 16
+        out_channels: 32
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    multihead_attn_1: # 添加多头注意力层
+      type: multihead_attn
+      embed_dim: 32
+      num_heads: 4
+      layers: [ 'layer_2' ]
+      patch_size: 32  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+    layer_3:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 32
+        out_channels: 64
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    multihead_attn_2: # 添加第二个多头注意力层
+      type: multihead_attn
+      embed_dim: 64
+      num_heads: 4
+      layers: [ 'layer_3' ]
+      patch_size: 32  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+    layer_4:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 64
+        out_channels: 128
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_5:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 128
+        out_channels: 256
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+
+    multihead_attn_3: # 添加第三个多头注意力层
+      type: multihead_attn
+      embed_dim: 256
+      num_heads: 4
+      layers: [ 'layer_5' ]
+      patch_size: 8  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+
+    layer_6:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: False
+      use_activation: ReLU
+      parameters:
+        in_channels: 256
+        out_channels: 512
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_7:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: False
+      use_activation: ReLU
+      parameters:
+        in_channels: 512
+        out_channels: 512
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_8:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: False
+      use_activation: ReLU
+      parameters:
+        in_channels: 512
+        out_channels: 1
+        kernel_size: 1
+        stride: 1
+
+  Discriminator_2:
+    # 1) 给 Inf 输入加权
+    input_weights_Inf_D2:
+      type: input_weights
+      input_dim: 3          # 假设 'Inf' 是 3 通道
+      layers: [ 'Inf' ]       # 对 feats['Inf'] 进行加权
+
+    # 2) 给 Generator_1 输入加权
+    input_weights_Gen_D2:
+      type: input_weights
+      input_dim: 3          # 假设 'Generator_1' 是 3 通道
+      layers: [ 'Generator_1' ]  # 对 feats['Generator_1'] 进行加权
+
+    concat_1:
+      type: concat
+      mode: batch
+      layers: ['Inf','Generator_1']
+
+    layer_1:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 3
+        out_channels: 16
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_2:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 16
+        out_channels: 32
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    multihead_attn_1: # 添加多头注意力层
+      type: multihead_attn
+      embed_dim: 32
+      num_heads: 4
+      layers: [ 'layer_2' ]
+      patch_size: 32  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+
+    layer_3:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 32
+        out_channels: 64
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    multihead_attn_2: # 添加第二个多头注意力层
+      type: multihead_attn
+      embed_dim: 64
+      num_heads: 4
+      layers: [ 'layer_3' ]
+      patch_size: 32  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+    layer_4:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 64
+        out_channels: 128
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_5:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: True
+      use_activation: ReLU
+      parameters:
+        in_channels: 128
+        out_channels: 256
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    multihead_attn_3: # 添加第三个多头注意力层
+      type: multihead_attn
+      embed_dim: 256
+      num_heads: 4
+      layers: [ 'layer_5' ]
+      patch_size: 8  # 可选参数，指定 patch 的大小
+      halo: 8 # 可选参数，指定 halo 的大小
+
+
+    layer_6:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: False
+      use_activation: ReLU
+      parameters:
+        in_channels: 256
+        out_channels: 512
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_7:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: False
+      use_activation: ReLU
+      parameters:
+        in_channels: 512
+        out_channels: 512
+        kernel_size: 3
+        stride: 2
+        padding: 1
+
+    layer_8:
+      type: conv
+      reuse_times: 1
+      same_weight: False
+      use_residual: False
+      use_bn: False
+      use_activation: ReLU
+      parameters:
+        in_channels: 512
+        out_channels: 1
+        kernel_size: 1
+        stride: 1
