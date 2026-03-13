@@ -13,9 +13,9 @@ python tools/train.py
 
 /datasets/TNO/tank
 
-/datasets/TNO/tank/1.bmp(可见光图像)
+/datasets/TNO/vis/1.bmp(ct图像)
 
-/datasets/TNO/tank/2.bmp(红外图像)
+/datasets/TNO/inf/2.bmp(mri图像)
 
 .
 
